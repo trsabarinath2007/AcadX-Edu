@@ -1,89 +1,97 @@
+
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 async function protect(req, res, next) {
   try {
+    // 1. Read the JWT from the HTTP-only cookie or Authorization header.
     const cookieToken = req.cookies?.acadx_token;
 
-    const headerToken =
-      (req.headers.authorization || "").startsWith("Bearer ")
-        ? req.headers.authorization.substring(7)
-        : null;
+    const authorization = req.headers.authorization || "";
+    const headerToken = authorization.startsWith("Bearer ")
+      ? authorization.substring(7).trim()
+      : null;
 
     const token = cookieToken || headerToken;
 
     if (!token) {
-      console.log("❌ AUTH: No token found");
+      console.warn(
+        "AUTH: No token received for",
+        req.method,
+        req.originalUrl
+      );
 
       return res.status(401).json({
-        message: "Authentication required"
+        message: "Authentication required",
       });
     }
 
+    // 2. Ensure JWT_SECRET is configured on the backend.
     if (!process.env.JWT_SECRET) {
-      console.error("❌ AUTH: JWT_SECRET is missing");
+      console.error("AUTH: JWT_SECRET is missing");
 
       return res.status(500).json({
-        message: "Server authentication configuration error"
+        message: "Server authentication configuration error",
       });
     }
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET
-    );
+    // 3. Verify the token.
+    let decoded;
 
-    if (!decoded?.id) {
-      console.log("❌ AUTH: Token has no user ID");
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (error) {
+      console.warn("AUTH: Token verification failed:", error.name);
 
       return res.status(401).json({
-        message: "Invalid authentication token"
+        message: "Invalid or expired authentication",
       });
     }
 
+    if (!decoded || !decoded.id) {
+      console.warn("AUTH: Token does not contain a user ID");
+
+      return res.status(401).json({
+        message: "Invalid authentication token",
+      });
+    }
+
+    // 4. Load the current user from MongoDB.
     const user = await User.findById(decoded.id)
       .populate("department", "name code");
 
     if (!user) {
-      console.log("❌ AUTH: User not found:", decoded.id);
+      console.warn("AUTH: Token user was not found");
 
       return res.status(401).json({
-        message: "Account not found"
+        message: "Account not found",
       });
     }
 
     if (!user.active) {
-      console.log("❌ AUTH: User inactive:", user.email);
-
-      return res.status(401).json({
-        message: "Account is inactive"
+      return res.status(403).json({
+        message: "Account is inactive",
       });
     }
 
-    // Normalize the role so "Admin", "ADMIN", etc.
-    // are treated as "admin".
-    const normalizedRole = String(user.role || "")
+    // 5. Normalize the role.
+    user.role = String(user.role || "")
       .trim()
       .toLowerCase();
 
-    user.role = normalizedRole;
-
-    console.log("=================================");
-    console.log("✅ AUTHENTICATED USER");
-    console.log("Email:", user.email);
-    console.log("Role:", user.role);
-    console.log("User ID:", user._id.toString());
-    console.log("Active:", user.active);
-    console.log("=================================");
-
+    // 6. Make the authenticated user available to route handlers.
     req.user = user;
 
-    next();
-  } catch (error) {
-    console.error("❌ Authentication error:", error.message);
+    console.log(
+      `AUTH: Accepted ${req.method} ${req.originalUrl} for role ${user.role}`
+    );
 
-    return res.status(401).json({
-      message: "Invalid or expired authentication"
+    return next();
+  } catch (error) {
+    console.error("AUTH middleware error:", error.message);
+
+    return res.status(500).json({
+      message: "Authentication service error",
     });
   }
 }
@@ -96,7 +104,7 @@ function roles(...allowed) {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
-        message: "Authentication required"
+        message: "Authentication required",
       });
     }
 
@@ -104,25 +112,21 @@ function roles(...allowed) {
       .trim()
       .toLowerCase();
 
-    console.log("🔐 ROLE CHECK");
-    console.log("User role:", userRole);
-    console.log("Allowed roles:", normalizedAllowed);
-
     if (!normalizedAllowed.includes(userRole)) {
-      console.log("❌ ROLE DENIED");
+      console.warn(
+        `AUTH: Role denied for ${req.method} ${req.originalUrl}`
+      );
 
       return res.status(403).json({
-        message: "You do not have access to this resource"
+        message: "You do not have access to this resource",
       });
     }
 
-    console.log("✅ ROLE ALLOWED");
-
-    next();
+    return next();
   };
 }
 
 module.exports = {
   protect,
-  roles
+  roles,
 };
