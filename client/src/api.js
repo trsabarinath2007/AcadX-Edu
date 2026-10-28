@@ -1,8 +1,12 @@
+
 import axios from "axios";
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "https://acadx-finy.onrender.com/api",
-  withCredentials: true
+  baseURL: "/api",
+  withCredentials: true,
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
 export async function apiGet(url, config) {
