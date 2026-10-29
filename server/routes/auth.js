@@ -1,3 +1,4 @@
+
 const express = require("express");
 const { body, validationResult } = require("express-validator");
 
@@ -7,13 +8,21 @@ const { signToken, publicUser } = require("../utils/token");
 
 const router = express.Router();
 
+// Cookie options for cross-origin Vercel + Render authentication
+const cookieOptions = {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  path: "/",
+};
+
 /*
 =========================================================
 LOGIN
 POST /api/auth/login
 =========================================================
 */
-
 router.post(
   "/login",
   [
@@ -29,12 +38,6 @@ router.post(
   ],
   async (req, res) => {
     try {
-      /*
-      -----------------------------------------------------
-      VALIDATION
-      -----------------------------------------------------
-      */
-
       const errors = validationResult(req);
 
       if (!errors.isEmpty()) {
@@ -43,35 +46,15 @@ router.post(
         });
       }
 
-      /*
-      -----------------------------------------------------
-      GET LOGIN DETAILS
-      -----------------------------------------------------
-      */
-
       const email = String(req.body.email)
         .trim()
         .toLowerCase();
 
       const password = String(req.body.password);
 
-      /*
-      -----------------------------------------------------
-      FIND USER
-      -----------------------------------------------------
-      */
-
-      const user = await User.findOne({
-        email,
-      })
+      const user = await User.findOne({ email })
         .select("+password")
         .populate("department", "name code");
-
-      /*
-      -----------------------------------------------------
-      INVALID USER
-      -----------------------------------------------------
-      */
 
       if (!user) {
         return res.status(401).json({
@@ -79,23 +62,12 @@ router.post(
         });
       }
 
-      /*
-      -----------------------------------------------------
-      ACCOUNT STATUS
-      -----------------------------------------------------
-      */
-
       if (!user.active) {
         return res.status(403).json({
-          message: "Your account is inactive. Please contact the administrator.",
+          message:
+            "Your account is inactive. Please contact the administrator.",
         });
       }
-
-      /*
-      -----------------------------------------------------
-      PASSWORD CHECK
-      -----------------------------------------------------
-      */
 
       const passwordMatches =
         await user.comparePassword(password);
@@ -106,62 +78,32 @@ router.post(
         });
       }
 
-      /*
-      -----------------------------------------------------
-      CREATE JWT
-      -----------------------------------------------------
-      */
-
+      // Generate authentication token
       const token = signToken(user);
 
-      /*
-      -----------------------------------------------------
-      SET HTTP-ONLY COOKIE
-      -----------------------------------------------------
-      */
+      // Set cross-origin authentication cookie
+      res.cookie("acadx_token", token, cookieOptions);
 
-      res.cookie("acadx_token", token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure:
-          process.env.NODE_ENV === "production",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
-
-      /*
-      -----------------------------------------------------
-      PUBLIC USER RESPONSE
-      -----------------------------------------------------
-      */
-
+      // Return safe user details
       const safeUser = publicUser(user);
-
-      /*
-      Make sure these important fields are available
-      to the frontend.
-      */
 
       safeUser.mustChangePassword =
         Boolean(user.mustChangePassword);
 
-      safeUser.role =
-        String(user.role || "")
-          .trim()
-          .toLowerCase();
+      safeUser.role = String(user.role || "")
+        .trim()
+        .toLowerCase();
 
-      /*
-      -----------------------------------------------------
-      SUCCESS
-      -----------------------------------------------------
-      */
+      console.log(
+        `LOGIN: Successful login for ${email}, role ${safeUser.role}`
+      );
 
       return res.status(200).json({
         message: "Login successful",
         user: safeUser,
       });
     } catch (error) {
-      console.error("Login error:", error);
+      console.error("Login error:", error.message);
 
       return res.status(500).json({
         message: "Login failed. Please try again.",
@@ -176,13 +118,11 @@ LOGOUT
 POST /api/auth/logout
 =========================================================
 */
-
 router.post("/logout", (req, res) => {
   res.clearCookie("acadx_token", {
     httpOnly: true,
-    sameSite: "lax",
-    secure:
-      process.env.NODE_ENV === "production",
+    secure: true,
+    sameSite: "none",
     path: "/",
   });
 
@@ -197,7 +137,6 @@ CURRENT USER
 GET /api/auth/me
 =========================================================
 */
-
 router.get("/me", protect, (req, res) => {
   try {
     const safeUser = publicUser(req.user);
@@ -205,16 +144,15 @@ router.get("/me", protect, (req, res) => {
     safeUser.mustChangePassword =
       Boolean(req.user.mustChangePassword);
 
-    safeUser.role =
-      String(req.user.role || "")
-        .trim()
-        .toLowerCase();
+    safeUser.role = String(req.user.role || "")
+      .trim()
+      .toLowerCase();
 
     return res.status(200).json({
       user: safeUser,
     });
   } catch (error) {
-    console.error("Auth /me error:", error);
+    console.error("Auth /me error:", error.message);
 
     return res.status(500).json({
       message: "Failed to load current user",
