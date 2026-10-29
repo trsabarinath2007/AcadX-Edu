@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://acadx-finy.onrender.com/api/$1"
+      "destination": "https://acadx-edu.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
