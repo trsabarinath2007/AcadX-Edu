@@ -45,28 +45,68 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5174",
   "http://127.0.0.1:5175",
+
+  // Main Vercel production domain
+  "https://acad-x-edu-ybjx.vercel.app",
+
+  // Known Vercel deployments
+  "https://acad-x-edu-ybjx-a08fuf7pp-sabari-d70c.vercel.app",
+  "https://acad-x-edu-ybjx-git-main-sabari-d70c.vercel.app",
+  "https://acad-x-edu-ybjx-kng0zs650-sabari-d70c.vercel.app",
 ]);
 
-// Allow the deployed website and configured production origin.
 if (process.env.CLIENT_URL) {
-  allowedOrigins.add(process.env.CLIENT_URL.replace(/\/$/, ""));
+  allowedOrigins.add(process.env.CLIENT_URL.replace(/\/+$/, ""));
 }
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Requests without an Origin header (e.g. server-to-server).
+      // Allow requests without an Origin header.
       if (!origin) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.has(origin.replace(/\/$/, ""))) {
+      const normalizedOrigin = origin.replace(/\/+$/, "");
+
+      let isProjectVercelDomain = false;
+
+      try {
+        const hostname = new URL(normalizedOrigin).hostname;
+
+        isProjectVercelDomain =
+          hostname === "acad-x-edu-ybjx.vercel.app" ||
+          (hostname.startsWith("acad-x-edu-ybjx-") &&
+            hostname.endsWith(".vercel.app"));
+      } catch {
+        isProjectVercelDomain = false;
+      }
+
+      if (
+        allowedOrigins.has(normalizedOrigin) ||
+        isProjectVercelDomain
+      ) {
         return callback(null, true);
       }
 
-      return callback(new Error(`CORS blocked origin: ${origin}`));
+      return callback(
+        new Error(`CORS blocked origin: ${origin}`)
+      );
     },
+
     credentials: true,
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
@@ -154,13 +194,17 @@ if (fs.existsSync(clientDist)) {
 ========================================================= */
 
 app.use((err, req, res, next) => {
-  if (err.message && err.message.startsWith("CORS blocked origin:")) {
+  if (
+    err.message &&
+    err.message.startsWith("CORS blocked origin:")
+  ) {
     return res.status(403).json({
       message: "Origin not allowed by CORS",
     });
   }
 
   console.error("Server error:", err);
+
   res.status(500).json({
     message: "Internal server error",
   });
@@ -173,10 +217,16 @@ app.use((err, req, res, next) => {
 connectDB()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`AcadX server running on http://localhost:${PORT}`);
+      console.log(
+        `AcadX server running on port ${PORT}`
+      );
     });
   })
   .catch((error) => {
-    console.error("Database connection failed:", error.message);
+    console.error(
+      "Database connection failed:",
+      error.message
+    );
+
     process.exit(1);
   });
