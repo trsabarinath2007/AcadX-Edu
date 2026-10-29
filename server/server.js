@@ -9,10 +9,7 @@ const cookieParser = require("cookie-parser");
 const morgan = require("morgan");
 const connectDB = require("./config/db");
 
-/* =========================================================
-   ROUTES
-========================================================= */
-
+// Routes
 const authRoutes = require("./routes/auth");
 const adminRoutes = require("./routes/admin");
 const courseRoutes = require("./routes/courses");
@@ -27,17 +24,14 @@ const announcementRoutes = require("./routes/announcements");
 const userRoutes = require("./routes/users");
 const academicRoutes = require("./routes/academic");
 
-/* =========================================================
-   APP
-========================================================= */
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 /* =========================================================
-   CORS
+   CORS CONFIGURATION
 ========================================================= */
 
+// Allow only the AcadX frontend and local development origins.
 const allowedOrigins = new Set([
   "http://localhost:5173",
   "http://localhost:5174",
@@ -45,14 +39,7 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5174",
   "http://127.0.0.1:5175",
-
-  // Main Vercel production domain
   "https://acad-x-edu-ybjx.vercel.app",
-
-  // Known Vercel deployments
-  "https://acad-x-edu-ybjx-a08fuf7pp-sabari-d70c.vercel.app",
-  "https://acad-x-edu-ybjx-git-main-sabari-d70c.vercel.app",
-  "https://acad-x-edu-ybjx-kng0zs650-sabari-d70c.vercel.app",
 ]);
 
 if (process.env.CLIENT_URL) {
@@ -62,36 +49,37 @@ if (process.env.CLIENT_URL) {
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests without an Origin header.
+      // Permit requests without an Origin header.
       if (!origin) {
         return callback(null, true);
       }
 
-      const normalizedOrigin = origin.replace(/\/+$/, "");
-
-      let isProjectVercelDomain = false;
+      let hostname;
 
       try {
-        const hostname = new URL(normalizedOrigin).hostname;
-
-        isProjectVercelDomain =
-          hostname === "acad-x-edu-ybjx.vercel.app" ||
-          (hostname.startsWith("acad-x-edu-ybjx-") &&
-            hostname.endsWith(".vercel.app"));
+        hostname = new URL(origin).hostname;
       } catch {
-        isProjectVercelDomain = false;
+        return callback(new Error("Invalid request origin"));
       }
+
+      const isAcadXVercelDomain =
+        hostname === "acad-x-edu-ybjx.vercel.app" ||
+        (
+          hostname.startsWith("acad-x-edu-ybjx-") &&
+          hostname.endsWith(".vercel.app")
+        );
+
+      const normalizedOrigin = origin.replace(/\/+$/, "");
 
       if (
         allowedOrigins.has(normalizedOrigin) ||
-        isProjectVercelDomain
+        isAcadXVercelDomain
       ) {
         return callback(null, true);
       }
 
-      return callback(
-        new Error(`CORS blocked origin: ${origin}`)
-      );
+      console.error("CORS blocked origin:", origin);
+      return callback(new Error("CORS origin not allowed"));
     },
 
     credentials: true,
@@ -107,6 +95,7 @@ app.use(
       "Content-Type",
       "Authorization",
     ],
+    optionsSuccessStatus: 204,
   })
 );
 
@@ -118,15 +107,10 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 /* =========================================================
-   COOKIES
+   COOKIES AND LOGGING
 ========================================================= */
 
 app.use(cookieParser());
-
-/* =========================================================
-   LOGGER
-========================================================= */
-
 app.use(morgan("dev"));
 
 /* =========================================================
@@ -172,7 +156,7 @@ app.use("/api/announcements", announcementRoutes);
 app.use("/api/users", userRoutes);
 
 /* =========================================================
-   SERVE FRONTEND BUILD
+   SERVE FRONTEND BUILD IF AVAILABLE
 ========================================================= */
 
 const clientDist = path.join(__dirname, "..", "client", "dist");
@@ -195,8 +179,8 @@ if (fs.existsSync(clientDist)) {
 
 app.use((err, req, res, next) => {
   if (
-    err.message &&
-    err.message.startsWith("CORS blocked origin:")
+    err.message === "CORS origin not allowed" ||
+    err.message === "Invalid request origin"
   ) {
     return res.status(403).json({
       message: "Origin not allowed by CORS",
@@ -211,15 +195,13 @@ app.use((err, req, res, next) => {
 });
 
 /* =========================================================
-   DATABASE + SERVER
+   DATABASE AND SERVER
 ========================================================= */
 
 connectDB()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(
-        `AcadX server running on port ${PORT}`
-      );
+      console.log(`AcadX server running on port ${PORT}`);
     });
   })
   .catch((error) => {
